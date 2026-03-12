@@ -1,5 +1,5 @@
 {
-  "total_vectors": 39,
+  "total_vectors": 272,
   "embedding_dim": 384,
   "model": "all-MiniLM-L6-v2"
 }

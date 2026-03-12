@@ -992,3 +992,62 @@ body {
 .chat-stream::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
 }
+
+/* ── Fetch More Papers Button ────────────────────────────────────────────── */
+
+.fetch-more-wrapper {
+    display: flex;
+    justify-content: center;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border);
+}
+
+.btn-fetch-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 1.75rem;
+    border-radius: 2rem;
+    border: 2px solid transparent;
+    background: linear-gradient(var(--surface), var(--surface)) padding-box,
+                linear-gradient(135deg, var(--primary), #8b5cf6) border-box;
+    color: var(--primary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.12);
+    font-family: inherit;
+}
+
+.btn-fetch-more:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--primary), #8b5cf6) border-box;
+    background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.3);
+}
+
+.btn-fetch-more:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.btn-fetch-more:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Dark mode support */
+.dark-mode .btn-fetch-more {
+    background: linear-gradient(#1e293b, #1e293b) padding-box,
+                linear-gradient(135deg, var(--primary), #8b5cf6) border-box;
+    color: #a5b4fc;
+}
+
+.dark-mode .btn-fetch-more:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+    color: white;
+}

@@ -9,51 +9,63 @@ from ..database import store_papers_batch, search_papers_by_title, vector_store,
 from ..utils.embeddings import embed_texts
 import numpy as np
 
-def search_agent_logic(query, max_results=20, top_k=10, local_threshold=0.7):
+def search_agent_logic(query, max_results=20, top_k=10, local_threshold=0.7, offset=0, seen_dois=None):
     """
     Progressive RAG search:
-    1. Check local KB first
-    2. If insufficient, call APIs
+    1. Check local KB first (only on page 1)
+    2. If insufficient or paginating, call APIs
     3. Store all new results
     4. Return ranked papers
     """
-    print(f"[SEARCH] Query: '{query}'")
+    if seen_dois is None:
+        seen_dois = set()
+
+    print(f"[SEARCH] Query: '{query}' | offset={offset}")
     
-    # STEP 1: Local vector search
-    print("[KB] Searching local knowledge base...")
-    query_embedding = embed_texts([query])[0]
-    local_results = vector_store.search_similar(
+    local_papers = []
+    
+    # STEP 1: Local vector search (Skip if fetching more pages)
+    if offset == 0:
+        print("[KB] Searching local knowledge base...")
+        query_embedding = embed_texts([query])[0]
+        local_results = vector_store.search_similar(
         query_embedding, 
         top_k=top_k,
         threshold=local_threshold
     )
     
-    local_papers = []
-    if local_results:
-        print(f"[KB] Found {len(local_results)} papers locally (similarity >= {local_threshold})")
-        # Fetch full paper data from DB
-        from ..database.papers_store import get_all_papers
-        all_stored = {p['id']: p for p in get_all_papers(limit=1000)}
-        for paper_id, score in local_results:
-            if paper_id in all_stored:
-                paper = all_stored[paper_id].copy()
-                paper['similarity_score'] = score
-                local_papers.append(paper)
-    else:
-        print("[KB] No local results found")
-    
-    # STEP 2: Check if local results are sufficient
-    if len(local_papers) >= top_k:
-        print(f"[OK] Sufficient local results ({len(local_papers)} papers) - skipping API")
-        return local_papers[:top_k]
+    if offset == 0:
+        if local_results:
+            print(f"[KB] Found {len(local_results)} papers locally (similarity >= {local_threshold})")
+            # Fetch full paper data from DB
+            from ..database.papers_store import get_all_papers
+            all_stored = {p['id']: p for p in get_all_papers(limit=1000)}
+            for paper_id, score in local_results:
+                if paper_id in all_stored:
+                    paper = all_stored[paper_id].copy()
+                    paper['similarity_score'] = score
+                    local_papers.append(paper)
+        else:
+            print("[KB] No local results found")
+        
+        # STEP 2: Check if local results are sufficient
+        if len(local_papers) >= top_k:
+            print(f"[OK] Sufficient local results ({len(local_papers)} papers) - skipping API")
+            return local_papers[:top_k]
     
     # STEP 3: Fetch from APIs (need more results)
     needed = max_results - len(local_papers)
-    print(f"[API] Fetching {needed} papers from external APIs...")
+    print(f"[API] Fetching {needed} papers from external APIs (offset={offset})...")
     
-    api_papers = search_semanticscholar(query, max_results=max_results)
+    api_papers = search_semanticscholar(query, max_results=max_results, offset=offset)
     api_papers = normalize_papers(api_papers)
     
+    # Filter out papers we have already seen this session
+    if seen_dois:
+        filtered = [p for p in api_papers if p.get('doi') and p.get('doi').lower() not in seen_dois]
+        print(f"[DEDUP] {len(filtered)} papers remain after session deduplication")
+        api_papers = filtered
+        
     if not api_papers:
         print("[API] No API results found")
         return local_papers[:top_k] if local_papers else []

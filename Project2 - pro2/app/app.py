@@ -23,12 +23,14 @@ def search():
     """Search papers with progressive KB"""
     data = request.json
     query = data.get('query', '')
+    offset = data.get('offset', 0)
+    seen_dois = data.get('seen_dois', [])
     
     if not query:
         return jsonify({"error": "No query provided"}), 400
     
     try:
-        results = search_agent_logic(query)
+        results = search_agent_logic(query, offset=offset, seen_dois=set(seen_dois))
         return jsonify({"results": results})
     except Exception as e:
         print(f"Search Error: {e}")
@@ -160,11 +162,26 @@ Extract 2-5 meaningful keywords for SEARCH_REQUEST only."""
                 "reasoning": "Fallback - detected question word"
             })
         
+        # Smart keyword extraction: strip command/stop words, keep the topic
+        STOP_WORDS = {
+            'search', 'find', 'look', 'fetch', 'get', 'show', 'give', 'list',
+            'for', 'me', 'on', 'about', 'regarding', 'related', 'to', 'in',
+            'research', 'paper', 'papers', 'article', 'articles', 'study',
+            'studies', 'literature', 'more', 'please', 'a', 'an', 'the',
+            'some', 'any', 'with', 'of', 'and', 'or', 'is', 'are', 'that',
+        }
+        raw_words = message.lower().split()
+        keywords = [w for w in raw_words if w not in STOP_WORDS and len(w) > 2]
+
+        # If we stripped everything, fall back to the last 3 raw words
+        if not keywords:
+            keywords = message.split()[-3:]
+
         return jsonify({
             "intent": "SEARCH_REQUEST" if len(message.split()) > 2 else "CHITCHAT",
-            "keywords": message.split()[:5],
+            "keywords": keywords[:6],
             "confidence": 0.5,
-            "reasoning": "Fallback - intent detection failed"
+            "reasoning": "Fallback - intent detection failed, extracted topic keywords"
         })
 
 @app.route('/stats', methods=['GET'])

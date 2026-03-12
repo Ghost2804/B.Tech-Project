@@ -112,7 +112,8 @@ Return ONLY valid JSON (no markdown, no ```):
     "experimental_setup": "Complete experimental details - Datasets (name, size, source, splits), Baseline methods compared against, Evaluation metrics used, Implementation details (frameworks, hardware), Any ablation studies. (100-120 words)",
     "results": "COMPREHENSIVE quantitative results - Report ALL key metrics with exact numbers, Compare to baselines showing % improvements, Statistical significance if reported, Performance on different data subsets, Best/worst case scenarios. Be quantitative and specific. (120-150 words)",
     "limitations": "Critical analysis - Acknowledged limitations, Computational constraints, Generalization concerns, Dataset biases, Assumptions made, Suggested future work. Be honest and analytical. (60-80 words)",
-    "key_takeaways": ["3-5 bullet points of MOST IMPORTANT findings - what a researcher MUST know from this paper"]
+    "key_takeaways": ["3-5 bullet points of MOST IMPORTANT findings - what a researcher MUST know from this paper"],
+    "potential_research_topics": ["2-3 bullet points suggesting new research questions or future directions based on this paper."]
   }
 ]
 
@@ -197,5 +198,6 @@ def _fallback_summary(papers, error_msg):
         "experimental_setup": f"Year: {p.get('year', 'N/A')} | Venue: {p.get('venue', 'N/A')}",
         "results": "Please regenerate summary or check API configuration",
         "limitations": "AI service temporarily unavailable",
-        "key_takeaways": ["Summary generation failed", "Please try again"]
+        "key_takeaways": ["Summary generation failed", "Please try again"],
+        "potential_research_topics": ["Enable AI to see potential research topics"]
     } for p in papers[:3]])

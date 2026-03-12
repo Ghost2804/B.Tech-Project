@@ -471,6 +471,9 @@ document.addEventListener('DOMContentLoaded', () => {
         papers: [],
         summaries: [],
         currentTopic: '',
+        currentQuery: '',
+        currentOffset: 0,
+        sessionSeenDois: new Set(),
         selectedPapers: [] // For comparison feature
     };
 
@@ -513,6 +516,9 @@ document.addEventListener('DOMContentLoaded', () => {
         state.papers = [];
         state.summaries = [];
         state.currentTopic = '';
+        state.currentQuery = '';
+        state.currentOffset = 0;
+        state.sessionSeenDois = new Set();
 
         // Show welcome message
         addMessage({
@@ -604,9 +610,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Agent Actions ---
 
+    // Helper to log what papers we've seen this chat session
+    function markPapersSeen(papersList) {
+        if (!papersList) return;
+        papersList.forEach(p => {
+            const id = (p.doi || p.title || '').trim().toLowerCase();
+            if (id) state.sessionSeenDois.add(id);
+        });
+    }
+
     async function performSearch(query) {
         state.mode = 'SEARCHING';
         els.status.textContent = "Searching papers...";
+
+        // Reset pagination state for a brand-new topic search
+        state.currentQuery = query;
+        state.currentOffset = 0;
+        // NOTE: sessionSeenDois is NOT reset here — it persists for the whole chat
 
         // Auto-update chat title based on search query
         chatHistory.updateCurrentChatTitle(query);
@@ -615,11 +635,15 @@ document.addEventListener('DOMContentLoaded', () => {
         addMessage({ role: 'bot', text: `🔍 Searching for papers on **"${query}"**...` });
         showTypingIndicator();
 
-        // API Call
+        // API Call — send list of all UIDs already shown this session
         const res = await fetch('/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query })
+            body: JSON.stringify({
+                query,
+                offset: 0,
+                seen_dois: [...state.sessionSeenDois]
+            })
         });
         const data = await res.json();
 
@@ -632,6 +656,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Register these papers as seen for the rest of the session
+        markPapersSeen(data.results);
+        state.currentOffset = 20; // Springer API fetches 20 at a time, so next page starts at 20
+
         state.papers = data.results;
         window.currentPapers = data.results; // Store globally for comparison feature
         window.selectedPapersData = []; // Reset selection for new search
@@ -642,12 +670,28 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(`Found ${state.papers.length} papers!`, 'success');
 
         // Render Papers Card (includes both summary + compare checkboxes and buttons)
-        addMessage({
+        const cardMsgId = addMessage({
             role: 'bot',
             text: `I found **${state.papers.length} papers**. Tick the papers you want to summarize or compare below!`,
             type: 'papers_card',
             data: state.papers
         });
+
+        // Add the initial Fetch More button
+        if (cardMsgId) {
+            const newMsgEl = document.getElementById(cardMsgId);
+            if (newMsgEl) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'fetch-more-wrapper';
+                wrapper.innerHTML = `
+                    <button class="btn-fetch-more" id="btn-fetch-more-${cardMsgId}" onclick="fetchMorePapers()">
+                        <i class="fa-solid fa-rotate-right"></i>
+                        Fetch More Papers
+                    </button>
+                `;
+                newMsgEl.querySelector('.msg-content').appendChild(wrapper);
+            }
+        }
 
         state.mode = 'CHATTING'; // Allow questions immediately
     }
@@ -892,6 +936,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         ` : ''}
 
+                        ${s.potential_research_topics && s.potential_research_topics.length > 0 ? `
+                        <div class="summary-doc-takeaways" style="margin-top:1rem; background:rgba(99,102,241,0.05); border-left-color:var(--primary);">
+                            <div class="takeaways-heading"><i class="fa-solid fa-lightbulb"></i> Potential Research Topics</div>
+                            <ul class="takeaways-list">
+                                ${s.potential_research_topics.map(t => `<li><span class="takeaway-bullet" style="color:var(--primary);">💡</span> ${t}</li>`).join('')}
+                            </ul>
+                        </div>
+                        ` : ''}
+
                     </div>
                 `;
             });
@@ -916,7 +969,123 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el) el.remove();
     }
 
+    // Expose addMessage globally so external functions (e.g. fetchMorePapers)
+    // can render new cards from outside the DOMContentLoaded closure.
+    window._addMessageGlobal = addMessage;
+
 });
+
+// ── Fetch More Papers ────────────────────────────────────────────────────────
+/**
+ * Called by the "Fetch More Papers" button.
+ * Uses the current query + offset stored in state to fetch the next page,
+ * excluding everything already seen this session.
+ */
+window.fetchMorePapers = async function () {
+    const s = window.getState ? window.getState() : null;
+    if (!s || !s.currentQuery) {
+        showToast('No active search to fetch more from', 'warning');
+        return;
+    }
+    if (s.mode === 'SEARCHING') {
+        showToast('Already fetching — please wait', 'info');
+        return;
+    }
+
+    const prevMode = s.mode;
+    s.mode = 'SEARCHING';
+
+    // Disable all Fetch More buttons while loading
+    document.querySelectorAll('.btn-fetch-more').forEach(b => {
+        b.disabled = true;
+        b.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Fetching...';
+    });
+
+    // We can't use the private showTypingIndicator here, so we just use the Toast
+    showToast('Fetching more papers...', 'info', 2000);
+
+    try {
+        const res = await fetch('/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query: s.currentQuery,
+                offset: s.currentOffset,
+                seen_dois: [...s.sessionSeenDois]
+            })
+        });
+        const data = await res.json();
+        
+        if (data.error || !data.results || data.results.length === 0) {
+            showToast('No more papers found for this topic', 'warning');
+            // Replace button with a soft message
+            document.querySelectorAll('.btn-fetch-more').forEach(b => {
+                b.disabled = true;
+                b.innerHTML = '<i class="fa-solid fa-check"></i> No more papers';
+            });
+            s.mode = prevMode;
+            return;
+        }
+
+        const newPapers = data.results;
+
+        // Register new papers as seen
+        newPapers.forEach(p => {
+            s.sessionSeenDois.add(((p.doi || p.title || '')).trim().toLowerCase());
+        });
+        s.currentOffset += 20; // Advance API offset by 20 for the next fetch
+
+        // Append new papers to global list
+        if (window.currentPapers) {
+            window.currentPapers.push(...newPapers);
+        } else {
+            window.currentPapers = newPapers;
+        }
+        s.papers = window.currentPapers;
+
+        showToast(`Fetched ${newPapers.length} more papers!`, 'success');
+
+        // Render a new card for ONLY the new papers
+        const cardMsgId = window._addMessageGlobal({
+            role: 'bot',
+            text: `Here are **${newPapers.length} more papers** on **"${s.currentQuery}"**:`,
+            type: 'papers_card',
+            data: newPapers
+        });
+
+        // Re-enable old buttons with updated offset indicator
+        document.querySelectorAll(`.btn-fetch-more:not([id^="btn-fetch-more-${cardMsgId}"])`).forEach(b => {
+            b.disabled = false;
+            b.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Fetch More Papers';
+        });
+
+        // Append fresh Fetch More button to new card
+        if (cardMsgId) {
+            const newMsgEl = document.getElementById(cardMsgId);
+            if (newMsgEl) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'fetch-more-wrapper';
+                wrapper.innerHTML = `
+                    <button class="btn-fetch-more" onclick="fetchMorePapers()">
+                        <i class="fa-solid fa-rotate-right"></i>
+                        Fetch More Papers
+                    </button>
+                `;
+                newMsgEl.querySelector('.msg-content').appendChild(wrapper);
+            }
+        }
+
+        s.mode = prevMode;
+
+    } catch (e) {
+        document.querySelectorAll('.btn-fetch-more').forEach(b => {
+            b.disabled = false;
+            b.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Fetch More Papers';
+        });
+        showToast('Failed to fetch more papers: ' + e.message, 'error');
+        s.mode = prevMode;
+    }
+};
 
 // Global function for tab switching (called from onclick in HTML)
 function showTab(summaryId, tabName) {

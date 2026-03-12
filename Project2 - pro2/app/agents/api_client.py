@@ -61,15 +61,24 @@
 
 import requests
 
-def search_semanticscholar(query, max_results=20, api_key='599305d1868ada4180d052e5ca90fba0'):
+def search_semanticscholar(query, max_results=20, api_key='599305d1868ada4180d052e5ca90fba0', offset=0):
     """
     Query Springer Metadata API (v2) for research papers.
     Returns list of dicts in format compatible with existing pipeline.
     """
+    # Clean noise words to prevent empty results for slightly conversational queries
+    STOP = {'research', 'paper', 'papers', 'article', 'articles', 'study', 'studies', 
+            'review', 'survey', 'find', 'search', 'show', 'fetch', 'get', 'give', 'list', 
+            'more', 'please', 'using', 'based', 'via', 'deep', 'novel', 'new', 'recent', 
+            'papre', 'papres', 'artical', 'articals', 'related', 'about', 'topic'}
+    words = [w for w in query.split() if w.lower() not in STOP]
+    clean_query = " ".join(words) if words else query
+
     base_url = "https://api.springernature.com/meta/v1/json"
     params = {
-        "q": query,
+        "q": clean_query,
         "p": max_results,
+        "s": offset + 1,  # Springer 'start' is 1-indexed
         "api_key": api_key
     }
 

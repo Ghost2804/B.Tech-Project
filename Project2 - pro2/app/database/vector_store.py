@@ -83,11 +83,13 @@ class VectorStore:
         self.save()
     
     def get_embedding(self, paper_id: int) -> np.ndarray:
-        """Get embedding for a paper"""
+        """Get embedding for a paper. Returns None if not found or index is stale."""
         paper_id_str = str(paper_id)
         if paper_id_str in self.index:
             idx = self.index[paper_id_str]
-            return self.vectors[idx]
+            # Guard against stale index entries that point beyond the current array
+            if self.vectors is not None and idx < len(self.vectors):
+                return self.vectors[idx]
         return None
     
     def search_similar(self, query_embedding: np.ndarray, top_k: int = 10, threshold: float = 0.7) -> List[Tuple[int, float]]:
